@@ -1,6 +1,6 @@
 # Laboratorio CI/CD - Azure App Service + Key Vault
 
-Este laboratorio es una versión reducida del proyecto **Portal Corredor**. Su objetivo es practicar el mismo flujo de CI/CD que el proyecto grande pero sin la complejidad del código real.
+Este laboratorio es una versión reducida del otro proyecto. Su objetivo es practicar el mismo flujo de CI/CD que el proyecto grande pero sin la complejidad del código real.
 
 ## Qué se practica
 
