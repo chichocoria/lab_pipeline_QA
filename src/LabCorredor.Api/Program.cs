@@ -2,7 +2,7 @@ using Azure.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cargar Key Vault solo si se configuró su nombre.
+// Cargar la Key Vault solo si se configuró su nombre.
 // En local normalmente no se usa Key Vault; en Azure App Service sí.
 var keyVaultName = builder.Configuration["KeyVault:Name"];
 if (!string.IsNullOrWhiteSpace(keyVaultName))
