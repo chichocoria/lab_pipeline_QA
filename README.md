@@ -20,6 +20,9 @@ lab/
 │   └── workflows/
 │       ├── ci-back-qa-prod.yaml      # CI: build + release
 │       └── deploybackend-qa.yaml     # CD: deploy a Azure
+├── scripts/
+│   ├── create-azure-resources.sh     # Script idempotente para crear recursos
+│   └── delete-azure-resources.sh     # Script para limpiar recursos
 ├── src/
 │   └── LabCorredor.Api/
 │       ├── appsettings.json
@@ -46,96 +49,48 @@ lab/
 
 ## Paso 1: Crear los recursos en Azure
 
-Ejecutar en Azure Cloud Shell o localmente (con `az login` previo):
+El laboratorio incluye un script idempotente que:
+
+- Omite recursos que ya existan.
+- Usa **RBAC** en lugar de access policies para Key Vault.
+- Crea secretos de ejemplo.
+- Configura Application Settings con referencias a Key Vault.
+- Muestra al final los valores para configurar en GitHub Secrets.
+
+### Opción A: Script automatizado (recomendada)
+
+Subir `scripts/create-azure-resources.sh` a Azure Cloud Shell o ejecutarlo localmente (requiere `az login`):
 
 ```bash
-# Variables
-RG="rg-lab-portalcorredor"
-LOCATION="eastus"
-PLAN="asp-lab-corredor"
-APP="web-lab-corredor-back"
-KV="kv-lab-corredor-$RANDOM"
-IDENTITY="id-lab-corredor-app"
-
-# Grupo de recursos
-az group create --name $RG --location $LOCATION
-
-# App Service Plan (B1 es el más económico para pruebas)
-az appservice plan create \
-  --name $PLAN \
-  --resource-group $RG \
-  --sku B1 \
-  --is-linux \
-  --number-of-workers 1
-
-# Web App con .NET 8
-az webapp create \
-  --name $APP \
-  --resource-group $RG \
-  --plan $PLAN \
-  --runtime "DOTNETCORE:8.0"
-
-# Key Vault
-az keyvault create \
-  --name $KV \
-  --resource-group $RG \
-  --location $LOCATION \
-  --sku standard
-
-# Identidad administrada asignada por el usuario
-az identity create \
-  --name $IDENTITY \
-  --resource-group $RG
-
-# Obtener IDs de la identidad
-IDENTITY_ID=$(az identity show --name $IDENTITY --resource-group $RG --query id -o tsv)
-CLIENT_ID=$(az identity show --name $IDENTITY --resource-group $RG --query clientId -o tsv)
-PRINCIPAL_ID=$(az identity show --name $IDENTITY --resource-group $RG --query principalId -o tsv)
-
-# Asignar identidad al App Service
-az webapp identity assign \
-  --name $APP \
-  --resource-group $RG \
-  --identities $IDENTITY_ID
-
-# Dar permiso a la identidad sobre Key Vault
-az keyvault set-policy \
-  --name $KV \
-  --object-id $PRINCIPAL_ID \
-  --secret-permissions get list
-
-# Crear secretos de ejemplo en Key Vault
-az keyvault secret set \
-  --vault-name $KV \
-  --name "DatabaseSettings--ConnectionString" \
-  --value "Server=tcp:lab-sql.database.windows.net;Database=LabDB;User ID=labuser;Password=P@ssw0rd!;"
-
-az keyvault secret set \
-  --vault-name $KV \
-  --name "Mailserver--Password" \
-  --value "lab-mail-password-123"
-
-az keyvault secret set \
-  --vault-name $KV \
-  --name "ExternalServices--Sunat--ApiKey" \
-  --value "lab-sunat-apikey-456"
-
-# Configurar Application Settings del App Service
-az webapp config appsettings set \
-  --name $APP \
-  --resource-group $RG \
-  --settings \
-    "ASPNETCORE_ENVIRONMENT=QA" \
-    "KeyVault__Name=$KV"
-
-# Mostrar valores importantes
-echo "Key Vault Name: $KV"
-echo "Client ID:      $CLIENT_ID"
-echo "Tenant ID:      $(az account show --query tenantId -o tsv)"
-echo "Subscription ID:$(az account show --query id -o tsv)"
+cd lab/scripts
+chmod +x create-azure-resources.sh
+./create-azure-resources.sh
 ```
 
-> Guardar los valores mostrados al final, se necesitan en el paso 3.
+El script imprime al final algo como:
+
+```text
+Key Vault Name:   kv-lab-corredor-16698
+Client ID:        adbcf612-1c50-4dea-994b-6ca562b43d2e
+Tenant ID:        bede8a65-db66-48bb-8fac-2b44a389f86f
+Subscription ID:  d4e1cec3-29c3-42ab-85d2-b34626adfb59
+```
+
+Guardar estos valores, se necesitan en el paso 3.
+
+### Opción B: Comandos manuales
+
+Si prefieres crear paso a paso, los comandos equivalentes están en `scripts/create-azure-resources.sh`.
+
+### Limpiar recursos
+
+Para borrar todo el laboratorio:
+
+```bash
+cd lab/scripts
+chmod +x delete-azure-resources.sh
+./delete-azure-resources.sh
+```
 
 ---
 
