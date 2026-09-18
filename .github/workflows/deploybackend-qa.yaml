@@ -16,7 +16,7 @@ env:
 jobs:
   set-version:
     name: Set version to use in deployment
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lab-corredor]
     outputs:
       deployed_version: ${{ steps.get-version.outputs.VERSION }}
 
