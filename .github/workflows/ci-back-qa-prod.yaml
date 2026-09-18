@@ -1,0 +1,82 @@
+name: CI-Lab-Corredor-QA-Prod
+
+# Proceso de CI para el laboratorio.
+# Compila la aplicacion .NET y genera un Release correspondiente.
+on:
+  pull_request:
+    branches:
+      - qa
+      - main
+
+env:
+  CONFIGURATION: Release
+  OUTPUT_PATH: './publish'
+  PROJECT_PATH: './src/LabCorredor.Api'
+
+jobs:
+  build:
+    name: Build and Release dotnet application
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Build application
+        run: dotnet build ${{ env.PROJECT_PATH }} --configuration ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Publish application
+        run: dotnet publish ${{ env.PROJECT_PATH }} --configuration ${{ env.CONFIGURATION }} --no-build --output ${{ env.OUTPUT_PATH }}
+
+      - name: Read version from csproj file
+        id: package-version
+        run: |
+          CSPROJ_LOCATION=$GITHUB_WORKSPACE/src/LabCorredor.Api/LabCorredor.Api.csproj
+          APP_VERSION=$(grep -oP '(?<=<Version>)[^<]+' $CSPROJ_LOCATION)
+          echo "VERSION=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Application version: $APP_VERSION"
+
+      - name: Upload build artifact (temp – for download from JOB RUN)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-corredor-api-v${{ steps.package-version.outputs.VERSION }}
+          path: ${{ env.OUTPUT_PATH }}
+          retention-days: 7
+
+      - name: Package build artifact
+        run: |
+          mkdir -p release
+          echo "------- PUBLISH FOLDER CONTENT: -------"
+          ls -la ${{ env.OUTPUT_PATH }}
+          cd ${{ env.OUTPUT_PATH }}
+          zip -r $GITHUB_WORKSPACE/release/lab-corredor-api-v${{ steps.package-version.outputs.VERSION }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.package-version.outputs.VERSION }}
+          name: Release v${{ steps.package-version.outputs.VERSION }}
+          body: |
+            ## Release v${{ steps.package-version.outputs.VERSION }}
+
+            - Rama: `${{ github.base_ref }}`
+            - Commit: `${{ github.sha }}`
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          draft: false
+          prerelease: false
+          files: release/lab-corredor-api-v${{ steps.package-version.outputs.VERSION }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

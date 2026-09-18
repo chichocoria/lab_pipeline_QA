@@ -1,0 +1,17 @@
+# Archivos de compilación
+bin/
+obj/
+publish/
+download/
+deploy/
+release/
+
+# IDEs
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Secretos locales
+src/LabCorredor.Api/appsettings.Local.json
+src/LabCorredor.Api/secrets.json

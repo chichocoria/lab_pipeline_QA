@@ -1,0 +1,131 @@
+name: Deploy-Lab-Corredor-QA
+
+# Despliegue manual a Azure App Service QA.
+# Descarga un release de GitHub y lo sube como ZIP al App Service.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_version:
+        description: 'Numero de version a desplegar. En caso de no especificar, se usara la ultima.'
+        required: false
+        type: string
+
+env:
+  APP_SERVICE_NAME: 'web-lab-corredor-back'
+
+jobs:
+  set-version:
+    name: Set version to use in deployment
+    runs-on: ubuntu-latest
+    outputs:
+      deployed_version: ${{ steps.get-version.outputs.VERSION }}
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set DEPLOYED_VERSION env
+        id: get-version
+        env:
+          INPUT_VERSION: ${{ inputs.deploy_version }}
+
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+            echo "Usando version ingresada manualmente: $VERSION"
+          else
+            CSPROJ_LOCATION=$GITHUB_WORKSPACE/src/LabCorredor.Api/LabCorredor.Api.csproj
+            VERSION=$(grep -oP '(?<=<Version>)[^<]+' $CSPROJ_LOCATION)
+            echo "Usando version desde archivo csproj: $VERSION"
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+  get-package:
+    name: Get Package to be Deployed in App Service
+    runs-on: ubuntu-latest
+    needs: set-version
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find and download release asset
+        id: download-asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.set-version.outputs.deployed_version }}
+        run: |
+          TAG="v${VERSION}"
+          echo "Buscando release con tag: $TAG"
+
+          # Obtener la información del release
+          RELEASE_JSON=$(gh release view "$TAG" --json assets)
+
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "::error::No se encontró el release con tag $TAG"
+            exit 1
+          fi
+
+          # Extraer el nombre del asset que contiene la versión
+          ASSET_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains(env.VERSION)) | .name' | head -n 1)
+
+          if [ -z "$ASSET_NAME" ]; then
+            echo "::error::No se encontró un asset que contenga la versión ${VERSION}"
+            exit 1
+          fi
+
+          echo "Asset encontrado: $ASSET_NAME"
+          echo "ASSET_NAME=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
+          # Descargar el asset
+          gh release download "$TAG" --pattern "$ASSET_NAME" --dir ./download
+
+      - name: Upload deploy package
+        if: github.event.inputs.deploy_version == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-corredor-api-v${{ needs.set-version.outputs.deployed_version }}
+          path: ./download
+          retention-days: 7
+
+  deploy:
+    name: Deploy to App Service - QA Environment
+    environment:
+      name: qa
+      url: https://web-lab-corredor-back.azurewebsites.net
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write              # Necesario para algunos flujos de Azure login
+      contents: read
+    needs: [get-package, set-version]
+
+    steps:
+
+      - name: Download build artifact
+        if: github.event.inputs.deploy_version == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: lab-corredor-api-v${{ needs.set-version.outputs.deployed_version }}
+          path: ./deploy
+
+      - name: List downloaded files
+        run: ls -la ./deploy
+
+      - name: Login to Azure using User-Assigned Managed Identity
+        uses: azure/login@v2
+        with:
+          auth-type: IDENTITY
+          client-id: ${{ secrets.AZURE_USER_ASSIGNED_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy ZIP to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_SERVICE_NAME }}
+          package: ./deploy/lab-corredor-api-v${{ needs.set-version.outputs.deployed_version }}.zip
